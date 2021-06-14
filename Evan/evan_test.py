@@ -1,10 +1,13 @@
 """Import"""
 
 from fife.lgb_modelers import LGBSurvivalModeler
+from fife.tf_modelers import TFSurvivalModeler
 from fife.processors import PanelDataProcessor
 from fife.utils import make_results_reproducible
 from pandas import concat, date_range, read_csv, to_datetime
+import pandas as pd
 import numpy as np
+from ppprint import ppprint
 
 
 ### Set up basic data, subset of original ###
@@ -43,158 +46,134 @@ data_processor.build_processed_data()
 
 print(data_processor.data)
 
-modeler = LGBSurvivalModeler(data=data_processor.data);
-modeler.build_model(parallelize=False);
+### LGB modeler ###
+# modeler_LGB = LGBSurvivalModeler(data=data_processor.data);
+# modeler_LGB.build_model(parallelize=False);
+# forecasts_LGB = modeler_LGB.forecast()
+# forecasts_LGB["50-period Survival Probability"]
 
-forecasts = modeler.forecast()
+
+
+### TF modeler ###
+
+from fife.tf_modelers import TFSurvivalModeler
+from fife.tf_modelers import FeedforwardNeuralNetworkModeler
+
+
+modeler_TF = TFSurvivalModeler(data = data_processor.data)
+modeler_TF.build_model()
+# params = modeler_TF.hyperoptimize(n_trials = 1)
+# modeler_TF.build_model(params = params)
+forecasts_TF = modeler_TF.forecast()
+# forecasts_TF["15-period Survival Probability"]
+
+forecasts_TF.columns = list(map(str, np.arange(1,len(forecasts_TF.columns) + 1,1)))
+
+
+# modeler_FF = FeedforwardNeuralNetworkModeler(data = data_processor.data)
+# modeler_FF.build_model()
+# forecasts_TF = modeler_TF.forecast()
+# forecasts_TF["50-period Survival Probability"]
+
+
+
 
 # data.columns
 
-print(forecasts)
-print(forecasts["12-period Survival Probability"])
 
 
 
-### Chernoff Bounds existing implementation ###
+### Gal MC dropout existing implementation ###
 
-forecasts.columns = list(map(str, np.arange(1,len(forecasts.columns) + 1,1)))
-
-from fife.utils import compute_aggregation_uncertainty
-
-chernoff_df = compute_aggregation_uncertainty(forecasts)
-
-chernoff_df
+from fife import tf_modelers
+from fife.base_modelers import default_subset_to_all
+from fife.tf_modelers import split_categorical_features
+from typing import List, Union
+import tensorflow.keras.backend as K
 
 
-# test function directly
-
-percent_confidence = 0.95
-individual_probabilities = forecasts
-
-def compute_aggregation_uncertainty(
-    individual_probabilities: pd.core.frame.DataFrame, percent_confidence: float = 0.95
-) -> pd.core.frame.DataFrame:
-    """Statistically bound number of events given each of their probabilities, using Chernoff bounds.
-
-    Args:
-        individual_probabilities: A DataFrame of probabilities where each row
-            represents an individual and each column represents an event.
-        percent_confidence: The percent confidence of the two-sided intervals
-            defined by the computed bounds.
-
-    Raises:
-        ValueError: If percent_confidence is outside of the interval (0, 1).
-
-    Returns:
-        A DataFrame containing, for each column in individual_probabilities,
-        the expected number of events and interval bounds on the number of
-        events.
-    """
-    if (percent_confidence <= 0) | (percent_confidence >= 1):
-        raise ValueError("Percent confidence outside (0, 1)")
-    means = individual_probabilities.transpose().to_numpy().sum(axis=1)
-    cutoff = np.log((1 - percent_confidence) / 2) / means
-    upper_bounds = (
-        1 + ((-cutoff) + np.sqrt(np.square(cutoff) - (8 * cutoff))) / 2
-    ) * means
-    upper_bounds = np.minimum(upper_bounds, individual_probabilities.shape[0])
-    lower_bounds = np.maximum((1 - np.sqrt(-2 * cutoff)) * means, 0)
-    lower_bounds = np.maximum(lower_bounds, 0)
-    conf = str(int(percent_confidence * 100))
-    times = list(individual_probabilities)
-    output = pd.DataFrame(
-        {
-            "Event": times,
-            "ExpectedEventCount": means,
-            "Lower" + conf + "PercentBound": lower_bounds,
-            "Upper" + conf + "PercentBound": upper_bounds,
-        }
-    )
-    return output
 
 
-### New function using optimization
+### Gal function ####
 
-from scipy.optimize import minimize, minimize_scalar
-from scipy.optimize import Bounds
+self = modeler_TF
+subset = None
+n_iterations = 200
 
-percent_confidence = 0.95
-individual_probabilities = forecasts
+def compute_model_uncertainty(
+        self, subset: Union[None, pd.core.series.Series] = None, n_iterations: int = 200
+) -> np.ndarray:
+    """Predict with dropout as proposed by Gal and Ghahramani (2015).
 
-
-# https://docs.scipy.org/doc/scipy/reference/tutorial/optimize.html
-
-def compute_aggregation_uncertainty_new(
-    individual_probabilities: pd.core.frame.DataFrame, percent_confidence: float = 0.95
-) -> pd.core.frame.DataFrame:
-    """Statistically bound number of events given each of their probabilities, using Chernoff bounds.
+    See https://arxiv.org/abs/1506.02142.
 
     Args:
-        individual_probabilities: A DataFrame of probabilities where each row
-            represents an individual and each column represents an event.
-        percent_confidence: The percent confidence of the two-sided intervals
-            defined by the computed bounds.
-
-    Raises:
-        ValueError: If percent_confidence is outside of the interval (0, 1).
+        subset: A Boolean Series that is True for observations for which
+            predictions will be produced. If None, default to all
+            observations.
+        n_iterations: Number of random dropout specifications to obtain
+            predictions from.
 
     Returns:
-        A DataFrame containing, for each column in individual_probabilities,
-        the expected number of events and interval bounds on the number of
-        events.
+        A numpy array of predictions by observation, lead length, and
+        iteration.
     """
-    if (percent_confidence <= 0) | (percent_confidence >= 1):
-        raise ValueError("Percent confidence outside (0, 1)")
-    means = individual_probabilities.transpose().to_numpy().sum(axis=1)
-
-    mu = 7
-    mu = np.array([7,8])
-    alpha = 0.025
-    delta = 1
-
-    def chernoff_upper_bound (means: np.ndarray, alpha: float):
-
-        def minimize_delta_function(delta: float, mu: float, alpha: float):
-            quantity = (np.exp(-mu * (delta ** 2) / (2 + delta)) - alpha) ** 2
-            if (delta <= 0):
-                quantity = (quantity * 1e4) ** 2
-
-            return quantity
-
-
-        deltas_solved = np.array([])
-
-        for mu in means:
-            one_delta = minimize_scalar(minimize_delta_function, args=(mu, alpha),
-                 method="Bounded", bounds=(0, 3)).x
-            deltas_solved = np.append(deltas_solved, one_delta)
-
-        upper_bounds = (1 + deltas_solved) * means
-
-        return upper_bounds
-
-
-    chernoff_upper_bound(means, 0.025)
-
-
-
-
-
-    cutoff = np.log((1 - percent_confidence) / 2) / means
-    upper_bounds = (
-        1 + ((-cutoff) + np.sqrt(np.square(cutoff) - (8 * cutoff))) / 2
-    ) * means
-    upper_bounds = np.minimum(upper_bounds, individual_probabilities.shape[0])
-    lower_bounds = np.maximum((1 - np.sqrt(-2 * cutoff)) * means, 0)
-    lower_bounds = np.maximum(lower_bounds, 0)
-    conf = str(int(percent_confidence * 100))
-    times = list(individual_probabilities)
-    output = pd.DataFrame(
-        {
-            "Event": times,
-            "ExpectedEventCount": means,
-            "Lower" + conf + "PercentBound": lower_bounds,
-            "Upper" + conf + "PercentBound": upper_bounds,
-        }
+    subset = default_subset_to_all(subset, self.data)
+    model_inputs = split_categorical_features(
+        self.data[subset], self.categorical_features, self.numeric_features
     )
-    return output
+    predict_with_dropout = K.function(
+        # self.model.inputs + [K.learning_phase()], self.model.outputs
+        self.model.inputs, self.model.outputs
+    )
+    predictions = np.dstack(
+        [predict_with_dropout(model_inputs)[0] for i in range(n_iterations)]
+    )
+    return predictions
+
+
+typemodel_inputs
+
+modeler_TF.compute_model_uncertainty()
+
+type(model_inputs)
+len(model_inputs)
+
+self2 = predict_with_dropout
+inputs = model_inputs
+
+def temp(self2, inputs):
+    if not isinstance(inputs, (list, tuple)):
+      raise TypeError('`inputs` should be a list or tuple.')
+    feed_dict = {}
+    for tensor, value in zip(self2.inputs, inputs):
+      if is_sparse(tensor):
+        sparse_coo = value.tocoo()
+        indices = np.concatenate((np.expand_dims(sparse_coo.row, 1),
+                                  np.expand_dims(sparse_coo.col, 1)), 1)
+        value = (indices, sparse_coo.data, sparse_coo.shape)
+      feed_dict[tensor] = value
+    session = get_session()
+    updated = session.run(
+        self2.outputs + [self2.updates_op],
+        feed_dict=feed_dict,
+        **self2.session_kwargs)
+    return updated[:len(self2.outputs)]
+
+
+
+type(model_inputs[32])
+
+type(model_inputs[32]['year-month'])
+
+
+# predict_with_dropout(self.model.inputs)[0]
+
+type(self.model.inputs)
+
+len(self.model.inputs)
+len(self.model.outputs)
+
+type(model_inputs[0][0])
+
+predict_with_dropout()
