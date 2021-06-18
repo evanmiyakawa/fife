@@ -57,15 +57,42 @@ print(data_processor.data)
 ### TF modeler ###
 
 from fife.tf_modelers import TFSurvivalModeler
+import fife.tf_modelers
+import fife.tf_modelers
 from fife.tf_modelers import FeedforwardNeuralNetworkModeler
 
-
 modeler_TF = TFSurvivalModeler(data = data_processor.data)
+
+TFModeler
+
+modeler_TF.temp()
+
 modeler_TF.build_model()
-# params = modeler_TF.hyperoptimize(n_trials = 1)
-# modeler_TF.build_model(params = params)
+
+modeler_TF.output_layer
+
+
+
+
+
+
+
+
+
+
+
+
+fife.tf_modelers.TFModeler(data = data_processor.data)
+
+params = modeler_TF.hyperoptimize(n_trials = 1)
+modeler_TF.build_model(params = params)
+
+modeler_TF.model
+
 forecasts_TF = modeler_TF.forecast()
 # forecasts_TF["15-period Survival Probability"]
+
+
 
 forecasts_TF.columns = list(map(str, np.arange(1,len(forecasts_TF.columns) + 1,1)))
 
@@ -90,11 +117,16 @@ from fife.base_modelers import default_subset_to_all
 from fife.tf_modelers import split_categorical_features
 from typing import List, Union
 import tensorflow.keras.backend as K
+from tensorflow import
+import tensorflow.keras.utils as tf
+import tensorflow.keras.utils as tf_utils
+from tensorflow.keras import Model
 
-
+from tensorflow import mo
 
 
 ### Gal function ####
+
 
 self = modeler_TF
 subset = None
@@ -132,9 +164,33 @@ def compute_model_uncertainty(
     return predictions
 
 
-typemodel_inputs
+self = modeler_TF
 
-modeler_TF.compute_model_uncertainty()
+new_model = Model(self.model.inputs, self.model.outputs)
+
+new_model()
+
+
+# https://www.tensorflow.org/api_docs/python/tf/keras/Model
+
+from tensorflow.keras import Model
+
+dir(modeler_TF)
+
+modeler_TF.numeric_features
+
+# model = Model(self.model.inputs, self.model.outputs)
+keras_model = Model(self.model.inputs, self.model.outputs)
+
+type(model)
+
+model.fit()
+
+def func(model_inputs):
+    outs = model(model_inputs)
+    if wrap_outputs:
+        outs = [outs]
+    return tf_utils.to_numpy_or_python_type(outs)
 
 type(model_inputs)
 len(model_inputs)
@@ -142,23 +198,6 @@ len(model_inputs)
 self2 = predict_with_dropout
 inputs = model_inputs
 
-def temp(self2, inputs):
-    if not isinstance(inputs, (list, tuple)):
-      raise TypeError('`inputs` should be a list or tuple.')
-    feed_dict = {}
-    for tensor, value in zip(self2.inputs, inputs):
-      if is_sparse(tensor):
-        sparse_coo = value.tocoo()
-        indices = np.concatenate((np.expand_dims(sparse_coo.row, 1),
-                                  np.expand_dims(sparse_coo.col, 1)), 1)
-        value = (indices, sparse_coo.data, sparse_coo.shape)
-      feed_dict[tensor] = value
-    session = get_session()
-    updated = session.run(
-        self2.outputs + [self2.updates_op],
-        feed_dict=feed_dict,
-        **self2.session_kwargs)
-    return updated[:len(self2.outputs)]
 
 
 
