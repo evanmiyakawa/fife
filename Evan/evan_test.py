@@ -1,44 +1,60 @@
 """Import"""
 
 from fife.lgb_modelers import LGBSurvivalModeler
-from fife.tf_modelers import TFSurvivalModeler
+# from fife.tf_modelers import TFSurvivalModeler
+from fife.tf_modelers_copy import *
 from fife.processors import PanelDataProcessor
 from fife.utils import make_results_reproducible
 from pandas import concat, date_range, read_csv, to_datetime
 import pandas as pd
 import numpy as np
 from ppprint import ppprint
+from tests_performance.Data_Fabrication import *
 
 
+
+
+##### countries data #######
 ### Set up basic data, subset of original ###
 
-dat = read_csv("Evan/REIGN_2020_7.csv")
-# data = read_csv("Evan/REIGN_2020_7.csv")
+# dat = read_csv("Evan/REIGN_2020_7.csv")
+# # data = read_csv("Evan/REIGN_2020_7.csv")
+#
+# countries_unique = np.unique(dat["country"])
+#
+# countries_sub = countries_unique[0:10]
+#
+# # multiple ways to do filtering
+# # data.query("country in countries_sub")
+# data = dat[dat["country"].isin(countries_sub)]
+#
+# #data = dat[1:100]
+#
+#
+# data["country-leader"] = data["country"] + ": " + data["leader"]
+# data["year-month"] = data["year"].astype(int).astype(str) + data["month"].astype(int).astype(str).str.zfill(2)
+# data["year-month"] = to_datetime(data["year-month"], format="%Y%m")
+# data = concat([data[["country-leader", "year-month"]],
+#                data.drop(["ccode", "country-leader", "leader", "year-month"],
+#                          axis=1)],
+#                axis=1)
+#
+#
+#
+# total_obs = len(data)
+# data = data.drop_duplicates(["country-leader", "year-month"], keep="first")
+# n_duplicates = total_obs - len(data)
 
-countries_unique = np.unique(dat["country"])
-
-countries_sub = countries_unique[0:10]
-
-# multiple ways to do filtering
-# data.query("country in countries_sub")
-data = dat[dat["country"].isin(countries_sub)]
-
-#data = dat[1:100]
 
 
-data["country-leader"] = data["country"] + ": " + data["leader"]
-data["year-month"] = data["year"].astype(int).astype(str) + data["month"].astype(int).astype(str).str.zfill(2)
-data["year-month"] = to_datetime(data["year-month"], format="%Y%m")
-data = concat([data[["country-leader", "year-month"]],
-               data.drop(["ccode", "country-leader", "leader", "year-month"],
-                         axis=1)],
-               axis=1)
+##### fife data gen ######
+
+data = fabricate_data(N_PERSONS=1000, N_PERIODS=20, SEED=1234, exit_prob=0.3, dgp=1)
 
 
 
-total_obs = len(data)
-data = data.drop_duplicates(["country-leader", "year-month"], keep="first")
-n_duplicates = total_obs - len(data)
+
+### process data ####
 
 data_processor = PanelDataProcessor(data=data)
 data_processor.build_processed_data()
@@ -56,163 +72,27 @@ print(data_processor.data)
 
 ### TF modeler ###
 
-from fife.tf_modelers import TFSurvivalModeler
-import fife.tf_modelers
-import fife.tf_modelers
-from fife.tf_modelers import FeedforwardNeuralNetworkModeler
 
 modeler_TF = TFSurvivalModeler(data = data_processor.data)
 
-TFModeler
+modeler_TF.n_intervals = modeler_TF.set_n_intervals()
 
-modeler_TF.temp()
+# params = modeler_TF.hyperoptimize()
 
-modeler_TF.build_model()
-
-modeler_TF.output_layer
+params = {'BATCH_SIZE': 42, 'DENSE_LAYERS': 1, 'DROPOUT_SHARE': 0.06, 'EMBED_EXPONENT': 0.06933413089910512, 'EMBED_L2_REG': 8.582852423132469, 'POST_FREEZE_EPOCHS': 25, 'PRE_FREEZE_EPOCHS': 6, 'NODES_PER_DENSE_LAYER': 963}
 
 
-
-
-
-
-
-
-
-
-
-
-fife.tf_modelers.TFModeler(data = data_processor.data)
-
-params = modeler_TF.hyperoptimize(n_trials = 1)
 modeler_TF.build_model(params = params)
 
-modeler_TF.model
-
-forecasts_TF = modeler_TF.forecast()
-# forecasts_TF["15-period Survival Probability"]
-
-
-
-forecasts_TF.columns = list(map(str, np.arange(1,len(forecasts_TF.columns) + 1,1)))
+df = modeler_TF.compute_model_uncertainty(
+    n_iterations = 5,
+    params = params,
+    dropout_rate = 0.3,
+    percent_confidence = 0.99
+)
 
 
-# modeler_FF = FeedforwardNeuralNetworkModeler(data = data_processor.data)
-# modeler_FF.build_model()
-# forecasts_TF = modeler_TF.forecast()
-# forecasts_TF["50-period Survival Probability"]
+df
 
+modeler_TF.plot_forecast_prediction_intervals(df, ID = "998")
 
-
-
-# data.columns
-
-
-
-
-### Gal MC dropout existing implementation ###
-
-from fife import tf_modelers
-from fife.base_modelers import default_subset_to_all
-from fife.tf_modelers import split_categorical_features
-from typing import List, Union
-import tensorflow.keras.backend as K
-from tensorflow import
-import tensorflow.keras.utils as tf
-import tensorflow.keras.utils as tf_utils
-from tensorflow.keras import Model
-
-from tensorflow import mo
-
-
-### Gal function ####
-
-
-self = modeler_TF
-subset = None
-n_iterations = 200
-
-def compute_model_uncertainty(
-        self, subset: Union[None, pd.core.series.Series] = None, n_iterations: int = 200
-) -> np.ndarray:
-    """Predict with dropout as proposed by Gal and Ghahramani (2015).
-
-    See https://arxiv.org/abs/1506.02142.
-
-    Args:
-        subset: A Boolean Series that is True for observations for which
-            predictions will be produced. If None, default to all
-            observations.
-        n_iterations: Number of random dropout specifications to obtain
-            predictions from.
-
-    Returns:
-        A numpy array of predictions by observation, lead length, and
-        iteration.
-    """
-    subset = default_subset_to_all(subset, self.data)
-    model_inputs = split_categorical_features(
-        self.data[subset], self.categorical_features, self.numeric_features
-    )
-    predict_with_dropout = K.function(
-        # self.model.inputs + [K.learning_phase()], self.model.outputs
-        self.model.inputs, self.model.outputs
-    )
-    predictions = np.dstack(
-        [predict_with_dropout(model_inputs)[0] for i in range(n_iterations)]
-    )
-    return predictions
-
-
-self = modeler_TF
-
-new_model = Model(self.model.inputs, self.model.outputs)
-
-new_model()
-
-
-# https://www.tensorflow.org/api_docs/python/tf/keras/Model
-
-from tensorflow.keras import Model
-
-dir(modeler_TF)
-
-modeler_TF.numeric_features
-
-# model = Model(self.model.inputs, self.model.outputs)
-keras_model = Model(self.model.inputs, self.model.outputs)
-
-type(model)
-
-model.fit()
-
-def func(model_inputs):
-    outs = model(model_inputs)
-    if wrap_outputs:
-        outs = [outs]
-    return tf_utils.to_numpy_or_python_type(outs)
-
-type(model_inputs)
-len(model_inputs)
-
-self2 = predict_with_dropout
-inputs = model_inputs
-
-
-
-
-type(model_inputs[32])
-
-type(model_inputs[32]['year-month'])
-
-
-# predict_with_dropout(self.model.inputs)[0]
-
-type(self.model.inputs)
-
-len(self.model.inputs)
-len(self.model.outputs)
-
-type(model_inputs[0][0])
-
-predict_with_dropout()
