@@ -9,7 +9,9 @@ from fife.nnet_survival import make_surv_array, surv_likelihood, PropHazards
 import numpy as np
 import optuna
 import pandas as pd
+from matplotlib import pyplot as plt
 import shap
+from random import randrange
 import tensorflow as tf
 import tensorflow.keras as keras
 import tensorflow.keras.backend as K

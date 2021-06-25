@@ -89,10 +89,9 @@ subset[500:len(modeler_TF.data)] = False
 
 
 df = modeler_TF.compute_model_uncertainty(
-    n_iterations = 10,
+    n_iterations = 5,
     params = params,
-    percent_confidence = 0.99,
-    subset = subset
+    percent_confidence = 0.99
 )
 
 
