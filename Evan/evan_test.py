@@ -84,10 +84,15 @@ params = {'BATCH_SIZE': 42, 'DENSE_LAYERS': 1, 'DROPOUT_SHARE': 0.06, 'EMBED_EXP
 
 modeler_TF.build_model(params = params)
 
+subset = pd.Series(data = np.repeat(True, len(modeler_TF.data)))
+subset[500:len(modeler_TF.data)] = False
+
+
 df = modeler_TF.compute_model_uncertainty(
-    n_iterations = 50,
+    n_iterations = 10,
     params = params,
-    percent_confidence = 0.99
+    percent_confidence = 0.99,
+    subset = subset
 )
 
 

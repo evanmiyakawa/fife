@@ -612,12 +612,11 @@ class TFModeler(Modeler):
 
         conf = str(int(percent_confidence * 100))
 
-        def one_dropout_prediction(self, params, DROPOUT_SHARE) -> pd.core.frame.DataFrame:
+        def one_dropout_prediction(self, params, DROPOUT_SHARE, subset) -> pd.core.frame.DataFrame:
             """Compute forecasts for one MC Dropout iteration."""
 
-            dropout_model = self
-
-            dropout_model.data = dropout_model.data[subset]
+            dropout_model = TFSurvivalModeler(data=self.data)
+            dropout_model.n_intervals = self.n_intervals
 
             dropout_model.config["SEED"] = randrange(1, 9999, 1)
 
@@ -628,7 +627,8 @@ class TFModeler(Modeler):
                 params["DROPOUT_SHARE"] = DROPOUT_SHARE
 
             if "DROPOUT_SHARE" not in params.keys():
-                print("Model must have a dropout rate specified. Specify one using dropout_rate argument")
+                warn("Model must have a dropout rate specified. Specify one using dropout_rate argument",
+                     UserWarning)
                 return None
 
             dropout_model.build_model(params=params)
@@ -636,6 +636,16 @@ class TFModeler(Modeler):
             forecasts = dropout_model.forecast()
 
             forecasts.columns = list(map(str, np.arange(1, len(forecasts.columns) + 1, 1)))
+
+            ids_in_subset = dropout_model.data[subset]["ID"].unique()
+
+            keep_rows = np.repeat(True, len(forecasts))
+
+            for rw in range(len(forecasts)):
+                if forecasts.index[rw] not in ids_in_subset:
+                    keep_rows[rw] = False
+
+            forecasts = forecasts[keep_rows]
 
             return (forecasts)
 
@@ -645,7 +655,8 @@ class TFModeler(Modeler):
 
         for i in range(n_iterations):
             one_forecast = one_dropout_prediction(self, params=params,
-                                                  DROPOUT_SHARE=dropout_rate)
+                                                  DROPOUT_SHARE=dropout_rate,
+                                                  subset = subset)
             dropout_forecasts.append(one_forecast)
 
         ### get mean forecasts
@@ -814,7 +825,7 @@ class TFModeler(Modeler):
                 forecast_df = pi_df[pi_df['ID'] == int(ID)]
             except ValueError:
                 ID = ID
-                print("Invalid ID.")
+                warn("Invalid ID.", UserWarning)
                 return None
 
         forecast_df = forecast_df.assign(Period=forecast_df['Period'].tolist())
