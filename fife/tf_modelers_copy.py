@@ -581,7 +581,7 @@ class TFModeler(Modeler):
     def compute_model_uncertainty(
             self,
             subset: Union[None, pd.core.series.Series] = None,
-            n_iterations: int = 5,
+            n_iterations: int = 50,
             params: dict = None,
             dropout_rate: float = None,
             percent_confidence: float = 0.95
@@ -626,6 +626,10 @@ class TFModeler(Modeler):
 
             if DROPOUT_SHARE is not None:
                 params["DROPOUT_SHARE"] = DROPOUT_SHARE
+
+            if "DROPOUT_SHARE" not in params.keys():
+                print("Model must have a dropout rate specified. Specify one using dropout_rate argument")
+                return None
 
             dropout_model.build_model(params=params)
 
@@ -792,7 +796,6 @@ class TFModeler(Modeler):
         return prediction_intervals_df
 
 
-
     def plot_forecast_prediction_intervals(self, pi_df: pd.DataFrame, ID: str = "Sum") -> None:
         """Plot forecasts for future time periods with prediction intervals calculated by MC Dropout using compute_model_uncertainty()
 
@@ -801,13 +804,28 @@ class TFModeler(Modeler):
             ID: The ID of the observation for which to have forecasts plotted, or "Sum" for aggregated counts.
         """
 
+        ID = str(ID)
         forecast_df = pi_df[pi_df['ID'] == ID]
-        forecast_df['Period'] = forecast_df['Period'].tolist()
+
+
+        if len(forecast_df) == 0:
+            try:
+                ID = int(ID)
+                forecast_df = pi_df[pi_df['ID'] == int(ID)]
+            except ValueError:
+                ID = ID
+                print("Invalid ID.")
+                return None
+
+        forecast_df = forecast_df.assign(Period=forecast_df['Period'].tolist())
+
+        forecast_df = forecast_df.rename({forecast_df.columns[2]: "Lower", forecast_df.columns[5]: "Upper"}, axis = "columns")
 
         plt.clf()
 
         plt.scatter('Period', 'Mean', data=forecast_df, color="black")
-        plt.fill_between(x='Period', y1='Lower95PercentBound', y2='Upper95PercentBound',
+
+        plt.fill_between(x='Period', y1='Lower', y2='Upper',
                          data=forecast_df, color='gray', alpha=0.3,
                          linewidth=0)
 

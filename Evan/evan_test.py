@@ -85,14 +85,15 @@ params = {'BATCH_SIZE': 42, 'DENSE_LAYERS': 1, 'DROPOUT_SHARE': 0.06, 'EMBED_EXP
 modeler_TF.build_model(params = params)
 
 df = modeler_TF.compute_model_uncertainty(
-    n_iterations = 5,
+    n_iterations = 50,
     params = params,
-    dropout_rate = 0.3,
     percent_confidence = 0.99
 )
 
 
 df
 
-modeler_TF.plot_forecast_prediction_intervals(df, ID = "998")
+modeler_TF.plot_forecast_prediction_intervals(df)
 
+
+self = modeler_TF
