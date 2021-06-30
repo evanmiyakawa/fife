@@ -1,4 +1,5 @@
 """Import"""
+import time
 
 from fife.lgb_modelers import LGBSurvivalModeler
 # from fife.tf_modelers import TFSurvivalModeler
@@ -9,7 +10,8 @@ from pandas import concat, date_range, read_csv, to_datetime
 import pandas as pd
 import numpy as np
 from ppprint import ppprint
-from tests_performance.Data_Fabrication import *
+# from tests_performance.Data_Fabrication import *
+from tests_performance.Data_Fab_Copy import *
 
 
 
@@ -17,16 +19,17 @@ from tests_performance.Data_Fabrication import *
 ##### countries data #######
 ### Set up basic data, subset of original ###
 
-# dat = read_csv("Evan/REIGN_2020_7.csv")
-# # data = read_csv("Evan/REIGN_2020_7.csv")
+# # dat = read_csv("Evan/REIGN_2020_7.csv")
+# data = read_csv("Evan/REIGN_2020_7.csv")
 #
-# countries_unique = np.unique(dat["country"])
-#
-# countries_sub = countries_unique[0:10]
-#
-# # multiple ways to do filtering
-# # data.query("country in countries_sub")
-# data = dat[dat["country"].isin(countries_sub)]
+# # countries_unique = np.unique(dat["country"])
+# #
+# # countries_sub = countries_unique[0:200] # all
+# # # countries_sub = countries_unique[0:100]
+# #
+# # # multiple ways to do filtering
+# # # data.query("country in countries_sub")
+# # data = dat[dat["country"].isin(countries_sub)]
 #
 # #data = dat[1:100]
 #
@@ -49,7 +52,11 @@ from tests_performance.Data_Fabrication import *
 
 ##### fife data gen ######
 
-data = fabricate_data(N_PERSONS=1000, N_PERIODS=20, SEED=1234, exit_prob=0.3, dgp=1)
+data = fabricate_data(N_PERSONS=1000, N_PERIODS=10, SEED=1234, exit_prob=0.3, dgp=1,
+                      covariates_affect = True)
+
+# data = fabricate_data(N_PERSONS=500, N_PERIODS=10, SEED=1234, exit_prob=0.2, dgp=1,
+#                       covariates_affect = True)
 
 
 
@@ -77,27 +84,84 @@ modeler_TF = TFSurvivalModeler(data = data_processor.data)
 
 modeler_TF.n_intervals = modeler_TF.set_n_intervals()
 
-# params = modeler_TF.hyperoptimize()
-
-params = {'BATCH_SIZE': 42, 'DENSE_LAYERS': 1, 'DROPOUT_SHARE': 0.06, 'EMBED_EXPONENT': 0.06933413089910512, 'EMBED_L2_REG': 8.582852423132469, 'POST_FREEZE_EPOCHS': 25, 'PRE_FREEZE_EPOCHS': 6, 'NODES_PER_DENSE_LAYER': 963}
 
 
-modeler_TF.build_model(params = params)
 
-subset = pd.Series(data = np.repeat(True, len(modeler_TF.data)))
-subset[500:len(modeler_TF.data)] = False
+# params_relu = modeler_TF.hyperoptimize(hidden_activation = "relu")
+# params_relu = modeler_TF.hyperoptimize(n_trials = 10, max_epochs = 50,
+#                                   hidden_activation = "relu")
+params_relu = {'BATCH_SIZE': 47, 'DENSE_LAYERS': 1, 'DROPOUT_SHARE': 0.09341565394536064, 'EMBED_EXPONENT': 0.020380890688982994, 'EMBED_L2_REG': 9.218688576717144, 'POST_FREEZE_EPOCHS': 86, 'PRE_FREEZE_EPOCHS': 5, 'NODES_PER_DENSE_LAYER': 879,
+               "HIDDEN_ACTIVATION": "relu"}
 
 
-df = modeler_TF.compute_model_uncertainty(
-    n_iterations = 5,
-    params = params,
-    percent_confidence = 0.99
+# params_sigmoid = modeler_TF.hyperoptimize(hidden_activation = "sigmoid")
+# params_sigmoid = modeler_TF.hyperoptimize(n_trials = 10, max_epochs = 50,
+#                                   hidden_activation = "sigmoid")
+params_sigmoid = {'BATCH_SIZE': 54, 'DENSE_LAYERS': 1, 'DROPOUT_SHARE': 0.12708007679200212, 'EMBED_EXPONENT': 0.14735536034349736, 'EMBED_L2_REG': 7.496258769837922, 'POST_FREEZE_EPOCHS': 117, 'PRE_FREEZE_EPOCHS': 72, 'NODES_PER_DENSE_LAYER': 571,
+                  "HIDDEN_ACTIVATION": "sigmoid"}
+
+
+
+# params_sigmoid = {'BATCH_SIZE': 32, 'DENSE_LAYERS': 3, 'DROPOUT_SHARE': 0.14194098083262702, 'EMBED_EXPONENT': 0.0010944939671413273, 'EMBED_L2_REG': 15.991527297711723, 'POST_FREEZE_EPOCHS': 45, 'PRE_FREEZE_EPOCHS': 50, 'NODES_PER_DENSE_LAYER': 1007,
+#                "HIDDEN_ACTIVATION": "sigmoid"}
+# params_sigmoid = {'BATCH_SIZE': 32, 'DENSE_LAYERS': 1, 'DROPOUT_SHARE': 0.14194098083262702, 'EMBED_EXPONENT': 0.0010944939671413273, 'EMBED_L2_REG': 15.991527297711723, 'POST_FREEZE_EPOCHS': 45, 'PRE_FREEZE_EPOCHS': 36, 'NODES_PER_DENSE_LAYER': 707,
+#                "HIDDEN_ACTIVATION": "sigmoid"}
+
+
+
+
+
+
+# modeler_TF.build_model(params = params_relu)
+# modeler_TF.build_model(params = params_sigmoid)
+
+modeler_TF.model.summary()
+
+# subset = pd.Series(data = np.repeat(True, len(modeler_TF.data)))
+# subset[500:len(modeler_TF.data)] = False
+
+modeler_TF.build_model(params = params_relu)
+df_relu = modeler_TF.compute_model_uncertainty(
+    n_iterations = 20,
+    params = params_relu,
+    # dropout_rate = 0.1,
+    percent_confidence = 0.95
 )
 
 
-df
 
-modeler_TF.plot_forecast_prediction_intervals(df)
+modeler_TF.build_model(params = params_sigmoid)
+df_sigmoid = modeler_TF.compute_model_uncertainty(
+    n_iterations = 20,
+    params = params_sigmoid,
+    # dropout_rate = 0.1,
+    percent_confidence = 0.95
+)
 
+modeler_TF.build_model(params = params_relu)
+df_relu_02 = modeler_TF.compute_model_uncertainty(
+    n_iterations = 20,
+    params = params_relu,
+    # dropout_rate = 0.02,
+    percent_confidence = 0.95
+)
+
+df_relu_02
+
+
+df_sigmoid
+
+df.ID[8]
+
+modeler_TF.plot_forecast_prediction_intervals(df_relu, ID = "Sum")
+modeler_TF.plot_forecast_prediction_intervals(df_sigmoid, ID = "Sum")
+modeler_TF.plot_forecast_prediction_intervals(df_relu_02, ID = "Sum")
+
+id = 658
+modeler_TF.plot_forecast_prediction_intervals(df_relu, ID = id)
+modeler_TF.plot_forecast_prediction_intervals(df_sigmoid, ID = id)
+modeler_TF.plot_forecast_prediction_intervals(df_relu_50, ID = id)
+
+print(*df_relu['ID'])
 
 self = modeler_TF

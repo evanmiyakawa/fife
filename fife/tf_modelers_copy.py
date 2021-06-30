@@ -125,6 +125,8 @@ class TFModeler(Modeler):
         n_trials: int = 64,
         subset: Union[None, pd.core.series.Series] = None,
         max_epochs: int = 128,
+        hidden_activation: str = "sigmoid",
+        output_activation: str = "sigmoid"
     ) -> dict:
         """Search for hyperparameters with greater out-of-sample performance.
 
@@ -139,6 +141,9 @@ class TFModeler(Modeler):
             A dictionary containing the best-performing parameters.
         """
 
+        self.config["HIDDEN_ACTIVATION"] = hidden_activation
+        self.config["OUTPUT_ACTIVATION"] = output_activation
+
         def evaluate_params(
             trial: optuna.trial.Trial,
             x_train: List[np.array],
@@ -148,9 +153,13 @@ class TFModeler(Modeler):
             train_weights: np.array,
             valid_weights: np.array,
             max_epochs: int,
+            hidden_activation: str,
+            output_activation: str
         ) -> Union[None, dict]:
             """Compute out-of-sample performance for a parameter set."""
             params = {}
+            params["HIDDEN_ACTIVATION"] = hidden_activation
+            params["OUTPUT_ACTIVATION"] = output_activation
             params["BATCH_SIZE"] = trial.suggest_int(
                 "BATCH_SIZE", min(32, x_train[0].shape[0]), x_train[0].shape[0]
             )
@@ -257,6 +266,8 @@ class TFModeler(Modeler):
                 train_weights,
                 valid_weights,
                 max_epochs,
+                hidden_activation,
+                output_activation
             ),
             n_trials=n_trials,
         )
@@ -270,7 +281,7 @@ class TFModeler(Modeler):
             **{
                 k.lower(): v
                 for k, v in default_params.items()
-                if k in construction_args
+                if k.lower() in construction_args
             }
         )
         default_model.compile(
@@ -319,12 +330,9 @@ class TFModeler(Modeler):
             self.config.get("NON_CAT_MISSING_VALUE", -1)
         )
         construction_args = getfullargspec(self.construct_embedding_network).args
-
-        # evan edit: added "k.lower()" instead of k, to make params lowercase
         self.model = self.construct_embedding_network(
             **{k.lower(): v for k, v in params.items() if k.lower() in construction_args}
         )
-
         pre_freeze_early_stopping = "PRE_FREEZE_EPOCHS" not in params.keys()
         post_freeze_early_stopping = "POST_FREEZE_EPOCHS" not in params.keys()
         if post_freeze_early_stopping:
@@ -350,6 +358,8 @@ class TFModeler(Modeler):
         dropout_share: float = 0.25,
         embed_exponent: float = 0,
         embed_L2_reg: float = 2.0,
+        hidden_activation: str = "sigmoid",
+        output_activation: str = "sigmoid"
     ) -> keras.Model:
         """Set embedding layers followed by alternating dropout/dense layers.
 
@@ -369,6 +379,8 @@ class TFModeler(Modeler):
         Returns:
             An untrained Keras model.
         """
+
+
         if self.categorical_features:
             categorical_input_layers = [
                 Input(shape=(1,), dtype="int32") for _ in self.categorical_features
@@ -392,11 +404,11 @@ class TFModeler(Modeler):
             numeric_input_layer = Input(shape=(len(self.numeric_features),))
             dropout_layer = Dropout(dropout_share)(numeric_input_layer)
         for _ in range(dense_layers):
-            dense_layer = Dense(nodes_per_dense_layer, activation="sigmoid")(
+            dense_layer = Dense(nodes_per_dense_layer, activation=hidden_activation)(
                 dropout_layer
             )
             dropout_layer = Dropout(dropout_share)(dense_layer)
-        output_layer = Dense(self.n_intervals, activation="sigmoid", name="output")(
+        output_layer = Dense(self.n_intervals, activation=output_activation, name="output")(
             dropout_layer
         )
 
@@ -607,62 +619,45 @@ class TFModeler(Modeler):
         """
 
         subset = default_subset_to_all(subset, self.data)
-
         alpha = (1 - percent_confidence) / 2
-
         conf = str(int(percent_confidence * 100))
+        if params is None:
+            params = self.config
+        if dropout_rate is not None:
+            params["DROPOUT_SHARE"] = dropout_rate
+        if "DROPOUT_SHARE" not in params.keys():
+            warn("Model must have a dropout rate specified. Specify one using dropout_rate argument",
+                 UserWarning)
+            return None
+        dropout_model = self
 
-        def one_dropout_prediction(self, params, DROPOUT_SHARE, subset) -> pd.core.frame.DataFrame:
+        def one_dropout_prediction(self, dropout_model, params, subset) -> pd.core.frame.DataFrame:
             """Compute forecasts for one MC Dropout iteration."""
 
-            dropout_model = TFSurvivalModeler(data=self.data)
-            dropout_model.n_intervals = self.n_intervals
-
             dropout_model.config["SEED"] = randrange(1, 9999, 1)
-
-            if params is None:
-                params = dropout_model.config
-
-            if DROPOUT_SHARE is not None:
-                params["DROPOUT_SHARE"] = DROPOUT_SHARE
-
-            if "DROPOUT_SHARE" not in params.keys():
-                warn("Model must have a dropout rate specified. Specify one using dropout_rate argument",
-                     UserWarning)
-                return None
-
             dropout_model.build_model(params=params)
-
             forecasts = dropout_model.forecast()
-
             forecasts.columns = list(map(str, np.arange(1, len(forecasts.columns) + 1, 1)))
-
             ids_in_subset = dropout_model.data[subset]["ID"].unique()
-
             keep_rows = np.repeat(True, len(forecasts))
-
             for rw in range(len(forecasts)):
                 if forecasts.index[rw] not in ids_in_subset:
                     keep_rows[rw] = False
-
             forecasts = forecasts[keep_rows]
-
             return (forecasts)
+
 
         dropout_forecasts = list()
 
         # do MC dropout for n_iterations
-
         for i in range(n_iterations):
-            one_forecast = one_dropout_prediction(self, params=params,
-                                                  DROPOUT_SHARE=dropout_rate,
+            one_forecast = one_dropout_prediction(self, dropout_model = dropout_model,
+                                                  params=params,
                                                   subset = subset)
             dropout_forecasts.append(one_forecast)
 
         ### get mean forecasts
-
         sum_forecasts = dropout_forecasts[0]
-
         for i in range(1, len(dropout_forecasts)):
             sum_forecasts = sum_forecasts + dropout_forecasts[i]
 
@@ -679,16 +674,12 @@ class TFModeler(Modeler):
                     return squared_error_df
 
                 squared_error_sum_df = get_variance_for_index_time(0, time=time)
-
                 for i in range(1, len(dropout_forecasts)):
                     squared_error_sum_df = squared_error_sum_df + get_variance_for_index_time(i, time=time)
-
                 variance_df = squared_error_sum_df / len(dropout_forecasts)
-
                 return variance_df
 
             variance_all_times_df = get_forecast_variance_for_time(time=0)
-
             for t in range(1, len(mean_forecasts.columns)):
                 variance_all_times_df = pd.concat([variance_all_times_df, get_forecast_variance_for_time(time=t)],
                                                   axis=1)
@@ -702,12 +693,10 @@ class TFModeler(Modeler):
             period = np.empty(shape=0, dtype="int")
             iteration = np.empty(shape=0, dtype="int")
 
-            # iter = 0
             for iter in range(len(dropout_forecasts)):
                 observation_forecasts = dropout_forecasts[iter].iloc[rw]
                 id = dropout_forecasts[iter].index[rw]
                 survival_probability = survival_probability.append(observation_forecasts)
-
                 keys = observation_forecasts.keys()
                 period = np.append(period, observation_forecasts.keys().to_numpy(dtype="int"))
                 iteration = np.append(iteration, np.repeat(iter, len(keys)))
@@ -730,21 +719,16 @@ class TFModeler(Modeler):
                 "Upper" + conf + "PercentBound": np.empty(shape=0, dtype="float")
             })
 
-            # p = 1
             for rw in range(len(mean_forecasts.index)):
-
                 forecast_df = aggregate_observation_dropout_forecasts(dropout_forecasts, rw)
-
                 for p in range(len(forecast_df['period'].unique())):
                     period = p + 1
-                    # mean_forecasts.iloc[rw, forecast_df['period'].unique() == p
                     mean_forecast = mean_forecasts.iloc[rw, p]
                     period_forecasts = forecast_df[forecast_df['period'] == period]['survival_prob']
                     forecast_quantiles = period_forecasts.quantile([alpha, 0.5, 1 - alpha])
                     df = pd.DataFrame(
                         {"ID": forecast_df["ID"][0],
                          "Period": [period],
-                         # "Period": [forecast_df['period'].unique()[p]],
                          "Lower" + conf + "PercentBound": forecast_quantiles.iloc[0],
                          "Median": forecast_quantiles.iloc[1],
                          "Mean": mean_forecast,
@@ -752,7 +736,6 @@ class TFModeler(Modeler):
                          }
                     )
                     prediction_intervals_df = prediction_intervals_df.append(df)
-
             return prediction_intervals_df
 
         prediction_intervals_df = get_forecast_prediction_intervals(alpha)
@@ -770,18 +753,13 @@ class TFModeler(Modeler):
                 "Upper" + conf + "PercentBound": np.empty(shape=0, dtype="float")
             })
 
-            p = 0
             for p in range(len(dropout_forecasts[0].columns.unique())):
                 period = p + 1
                 dropout_expected_counts = []
-
                 for d in dropout_forecasts:
                     dropout_expected_counts.append(d[d.columns[p]].sum())
-
                 forecast_sum_series = pd.Series(dropout_expected_counts)
-
                 forecast_sum_quantiles = forecast_sum_series.quantile([alpha, 0.5, 1 - alpha])
-
                 df = pd.DataFrame(
                     {"ID": "Sum",
                      "Period": [period],
@@ -791,19 +769,12 @@ class TFModeler(Modeler):
                      "Upper" + conf + "PercentBound": forecast_sum_quantiles.iloc[2]
                      }
                 )
-
                 aggregation_pi_df = aggregation_pi_df.append(df)
-
             return aggregation_pi_df
 
         aggregation_prediction_intervals_df = get_aggregation_prediction_intervals()
-
-
-
         prediction_intervals_df = aggregation_prediction_intervals_df.append(prediction_intervals_df)
-
         prediction_intervals_df.index = np.arange(0, len(prediction_intervals_df.index))
-
         return prediction_intervals_df
 
 
@@ -817,8 +788,6 @@ class TFModeler(Modeler):
 
         ID = str(ID)
         forecast_df = pi_df[pi_df['ID'] == ID]
-
-
         if len(forecast_df) == 0:
             try:
                 ID = int(ID)
@@ -827,30 +796,20 @@ class TFModeler(Modeler):
                 ID = ID
                 warn("Invalid ID.", UserWarning)
                 return None
-
         forecast_df = forecast_df.assign(Period=forecast_df['Period'].tolist())
-
         forecast_df = forecast_df.rename({forecast_df.columns[2]: "Lower", forecast_df.columns[5]: "Upper"}, axis = "columns")
-
         plt.clf()
-
         plt.scatter('Period', 'Mean', data=forecast_df, color="black")
-
         plt.fill_between(x='Period', y1='Lower', y2='Upper',
                          data=forecast_df, color='gray', alpha=0.3,
                          linewidth=0)
-
         plt.xlabel("Period")
-
         if ID == "Sum":
             plt.ylabel("Expected counts")
         else:
             plt.ylabel("Survival probability")
-
         plt.title("Forecasts with Prediction Intervals")
-
         plt.show()
-
         return None
 
 
