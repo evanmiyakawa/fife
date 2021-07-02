@@ -261,7 +261,7 @@ class LGBModeler(Modeler):
         time_horizon: int,
         params: Union[None, dict] = None,
         subset: Union[None, pd.core.series.Series] = None,
-        validation_early_stopping: bool = True,
+        validation_early_stopping: bool = True
     ) -> lgb.basic.Booster:
         """Train a LightGBM model for a single lead length."""
         if params is None:
@@ -296,15 +296,35 @@ class LGBModeler(Modeler):
                 if self.weight_col
                 else None,
             )
-            model = lgb.train(
-                params[time_horizon],
-                train_data,
-                early_stopping_rounds=self.config.get("PATIENCE", 4),
-                valid_sets=[validation_data],
-                valid_names=["validation_set"],
-                categorical_feature=self.categorical_features,
-                verbose_eval=True,
-            )
+
+            if "fobj" in self.config.keys():
+                fobj = self.config["fobj"]
+            else:
+                fobj = None
+
+
+            if fobj is not None:
+                print("FOBJ USED")
+                model = lgb.train(
+                    params[time_horizon],
+                    train_data,
+                    early_stopping_rounds=self.config.get("PATIENCE", 4),
+                    valid_sets=[validation_data],
+                    valid_names=["validation_set"],
+                    categorical_feature=self.categorical_features,
+                    verbose_eval=True,
+                    fobj = fobj
+                )
+            else:
+                model = lgb.train(
+                    params[time_horizon],
+                    train_data,
+                    early_stopping_rounds=self.config.get("PATIENCE", 4),
+                    valid_sets=[validation_data],
+                    valid_names=["validation_set"],
+                    categorical_feature=self.categorical_features,
+                    verbose_eval=True
+                )
         else:
             data = lgb.Dataset(
                 data[self.categorical_features + self.numeric_features],
