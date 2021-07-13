@@ -53,7 +53,7 @@ from tests_performance.Data_Fab_Copy import *
 ##### fife data gen ######
 
 data = fabricate_data(N_PERSONS=1000, N_PERIODS=10, SEED=1234, exit_prob=0.3, dgp=1,
-                      covariates_affect = True)
+                      covariates_affect_outcome = True)
 
 # data = fabricate_data(N_PERSONS=500, N_PERIODS=10, SEED=1234, exit_prob=0.2, dgp=1,
 #                       covariates_affect = True)
@@ -122,7 +122,7 @@ modeler_TF.model.summary()
 
 modeler_TF.build_model(params = params_relu)
 df_relu = modeler_TF.compute_model_uncertainty(
-    n_iterations = 20,
+    n_iterations = 4,
     params = params_relu,
     # dropout_rate = 0.1,
     percent_confidence = 0.95

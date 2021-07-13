@@ -5,13 +5,14 @@ from typing import List, Union
 from warnings import warn
 
 import dask
-from fife.base_modelers import (
+from fife.base_modelers_copy import (
     default_subset_to_all,
     Modeler,
     SurvivalModeler,
     StateModeler,
     ExitModeler,
 )
+from fife.utils import sigmoid
 import lightgbm as lgb
 import numpy as np
 import optuna
@@ -277,6 +278,24 @@ class LGBModeler(Modeler):
         data = self.label_data(time_horizon)
         data = data[subset]
         data = self.subset_for_training_horizon(data, time_horizon)
+
+        if "fobj" in self.config.keys():
+
+            # N = len(self.data)
+            # learning_rate = params[0]['learning_rate']
+            # learning_rate = params[5]['learning_rate']
+            #
+            # langevin_noise = 2 / (N * learning_rate)
+            #
+            # self.langevin_noise =
+            fobj = self.config["fobj"]
+        else:
+            fobj = None
+        if "feval" in self.config.keys():
+            feval = self.config["feval"]
+        else:
+            feval = None
+
         if validation_early_stopping:
             train_data = lgb.Dataset(
                 data[~data[self.validation_col]][
@@ -297,14 +316,24 @@ class LGBModeler(Modeler):
                 else None,
             )
 
-            if "fobj" in self.config.keys():
-                fobj = self.config["fobj"]
-            else:
-                fobj = None
 
 
             if fobj is not None:
-                print("FOBJ USED")
+
+                N = len(train_data.get_label())
+                if 'learning_rate' in params[time_horizon].keys():
+                    learning_rate = params[time_horizon]['learning_rate']
+                else:
+                    learning_rate = 0.1 #lgm default
+                langevin_noise = 2 / (N * learning_rate)
+                self.langevin_noise = langevin_noise
+
+                ## change params temporarily to have regularization that leads to posterior distribution based on ensemble results
+
+                # params[time_horizon]['lambda_l1'] = 0
+                # params[time_horizon]['lambda_l2'] = 1 / 2 * N
+
+
                 model = lgb.train(
                     params[time_horizon],
                     train_data,
@@ -313,7 +342,8 @@ class LGBModeler(Modeler):
                     valid_names=["validation_set"],
                     categorical_feature=self.categorical_features,
                     verbose_eval=True,
-                    fobj = fobj
+                    fobj = fobj,
+                    feval = feval
                 )
             else:
                 model = lgb.train(
@@ -331,16 +361,47 @@ class LGBModeler(Modeler):
                 label=data["_label"],
                 weight=data[self.weight_col] if self.weight_col else None,
             )
-            model = lgb.train(
-                params[time_horizon],
-                data,
-                categorical_feature=self.categorical_features,
-                verbose_eval=True,
-            )
+            if fobj is not None:
+
+                N = len(data.get_label())
+                if 'learning_rate' in params[time_horizon].keys():
+                    learning_rate = params[time_horizon]['learning_rate']
+                else:
+                    learning_rate = 0.1 #lgm default
+                langevin_noise = 2 / (N * learning_rate)
+                self.langevin_noise = langevin_noise
+
+                ## change params temporarily to have regularization that leads to posterior distribution based on ensemble results
+
+                # params[time_horizon]['lambda_l1'] = 0
+                # params[time_horizon]['lambda_l2'] = 1 / 2 * N
+
+
+
+                # print("Period: " + str(time_horizon))
+                # print("Learning Rate: " + str(learning_rate))
+                # print("N: " + str(N))
+
+                model = lgb.train(
+                    params[time_horizon],
+                    data,
+                    categorical_feature=self.categorical_features,
+                    verbose_eval=True,
+                    fobj=fobj,
+                    feval=feval
+                )
+            else:
+                model = lgb.train(
+                    params[time_horizon],
+                    data,
+                    categorical_feature=self.categorical_features,
+                    verbose_eval=True,
+                )
         return model
 
     def predict(
-        self, subset: Union[None, pd.core.series.Series] = None, cumulative: bool = True
+        self, subset: Union[None, pd.core.series.Series] = None, cumulative: bool = True,
+            use_sigmoid = False
     ) -> np.ndarray:
         """Use trained LightGBM models to predict the outcome for each observation and time horizon.
 
@@ -366,6 +427,28 @@ class LGBModeler(Modeler):
                 for lead_specific_model in self.model
             ]
         ).T
+
+
+        if use_sigmoid:
+
+            # def _positive_sigmoid(x):
+            #     return 1 / (1 + np.exp(-x))
+            #
+            # def _negative_sigmoid(x):
+            #     exp = np.exp(x)
+            #     return exp / (exp + 1)
+            #
+            # def sigmoid(x):
+            #     positive = x >= 0
+            #     negative = ~positive
+            #     result = np.empty_like(x)
+            #     result[positive] = _positive_sigmoid(x[positive])
+            #     result[negative] = _negative_sigmoid(x[negative])
+            #     return result
+
+            predictions = sigmoid(predictions)
+
+
         if cumulative:
             predictions = np.cumprod(predictions, axis=1)
         return predictions
