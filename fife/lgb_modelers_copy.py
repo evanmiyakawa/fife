@@ -104,8 +104,10 @@ class LGBModeler(Modeler):
             params["feature_fraction"] = trial.suggest_uniform(
                 "feature_fraction", 0.5, 1
             )
-            params["lambda_l1"] = trial.suggest_uniform("lambda_l1", 0, 64)
-            params["lambda_l2"] = trial.suggest_uniform("lambda_l2", 0, 64)
+            # params["lambda_l1"] = trial.suggest_uniform("lambda_l1", 0, 64)
+            # params["lambda_l2"] = trial.suggest_uniform("lambda_l2", 0, 64)
+            params["lambda_l1"] = trial.suggest_loguniform("lambda_l1", 0.0001, 0.1)
+            params["lambda_l2"] = trial.suggest_loguniform("lambda_l2", 0.0001, 0.1)
             params["min_gain_to_split"] = trial.suggest_uniform(
                 "min_gain_to_split", 0, 0.25
             )

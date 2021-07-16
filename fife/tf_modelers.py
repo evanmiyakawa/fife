@@ -12,6 +12,7 @@ import optuna
 import pandas as pd
 from matplotlib import pyplot as plt
 import shap
+from scipy.stats import norm
 import tensorflow as tf
 import tensorflow.keras as keras
 import tensorflow.keras.backend as K
@@ -165,7 +166,9 @@ class TFModeler(Modeler):
             params["DENSE_LAYERS"] = trial.suggest_int("DENSE_LAYERS", 0, 3)
             params["DROPOUT_SHARE"] = trial.suggest_uniform("DROPOUT_SHARE", 0, 0.5)
             params["EMBED_EXPONENT"] = trial.suggest_uniform("EMBED_EXPONENT", 0, 0.25)
-            params["EMBED_L2_REG"] = trial.suggest_uniform("EMBED_L2_REG", 0, 16.0)
+            # params["EMBED_L2_REG"] = trial.suggest_loguniform("EMBED_L2_REG", 0.0001, 0.1)
+            params["EMBED_L2_REG"] = trial.suggest_uniform("EMBED_L2_REG", 0, 0.2)
+            # params["EMBED_L2_REG"] = trial.suggest_uniform("EMBED_L2_REG", 0, 16.0)
             if self.categorical_features:
                 params["POST_FREEZE_EPOCHS"] = trial.suggest_int(
                     "POST_FREEZE_EPOCHS", 4, max_epochs
@@ -594,7 +597,8 @@ class TFModeler(Modeler):
             n_iterations: int = 50,
             params: dict = None,
             dropout_rate: float = None,
-            percent_confidence: float = 0.95
+            percent_confidence: float = 0.95,
+            length_scale: float = 0.01
     ) -> pd.DataFrame:
         """Predict with MC Dropout as proposed by Gal and Ghahramani (2015). Produces prediction intervals for future observations.
         This procedure must be used with a NN model that uses dropout.
@@ -628,6 +632,20 @@ class TFModeler(Modeler):
                  UserWarning)
             return None
         dropout_model = self
+
+        dropout_rate = params["DROPOUT_SHARE"]
+        N = len(dropout_model.data)
+        if "EMBED_L2_REG" in params.keys():
+            lambd = params["EMBED_L2_REG"]
+        else:
+            lambd = 0.001
+
+
+        # mc_dropout_model_precision = length_scale ** 2 * (1 - dropout_rate) / (2 * N * lambd)
+        mc_dropout_model_precision = (1 - dropout_rate) / (2 * N)
+        np.sqrt(1 / (((1 ** 2) * (1 - dropout_rate)) / (2 * N * 0.00001)))
+
+        mc_dropout_model_precision = 0
 
         def one_dropout_prediction(self, dropout_model, params, subset) -> pd.core.frame.DataFrame:
             """Compute forecasts for one MC Dropout iteration."""
@@ -723,14 +741,23 @@ class TFModeler(Modeler):
                     period = p + 1
                     mean_forecast = mean_forecasts.iloc[rw, p]
                     period_forecasts = forecast_df[forecast_df['period'] == period]['survival_prob']
-                    forecast_quantiles = period_forecasts.quantile([alpha, 0.5, 1 - alpha])
+                    pred_variance = period_forecasts.var()
+                    forecast_pred_variance = pred_variance + 1 / mc_dropout_model_precision
+                    forecast_pred_variance = pred_variance + 0.25
+                    forecast_pred_sd = np.sqrt(forecast_pred_variance)
+                    forecast_lb = np.max([0, mean_forecast + forecast_pred_variance * norm.ppf(alpha)])
+                    forecast_ub = np.min([1, mean_forecast - forecast_pred_variance * norm.ppf(alpha)])
+                    forecast_median = period_forecasts.quantile([0.5])
+                    # forecast_quantiles = period_forecasts.quantile([alpha, 0.5, 1 - alpha])
                     df = pd.DataFrame(
                         {"ID": forecast_df["ID"][0],
                          "Period": [period],
-                         "Lower" + conf + "PercentBound": forecast_quantiles.iloc[0],
-                         "Median": forecast_quantiles.iloc[1],
+                         # "Lower" + conf + "PercentBound": forecast_quantiles.iloc[0],
+                         "Lower" + conf + "PercentBound": forecast_lb,
+                         "Median": forecast_median.iloc[0],
                          "Mean": mean_forecast,
-                         "Upper" + conf + "PercentBound": forecast_quantiles.iloc[2]
+                         "Upper" + conf + "PercentBound": forecast_ub
+                         # "Upper" + conf + "PercentBound": forecast_quantiles.iloc[2]
                          }
                     )
                     prediction_intervals_df = prediction_intervals_df.append(df)
