@@ -544,6 +544,14 @@ class LGBModeler(Modeler):
 
         self.langevin_noise = langevin_variance
 
+        individual_identifier = self.config["INDIVIDUAL_IDENTIFIER"]
+
+        ids_in_subset = self.data[subset][individual_identifier].unique()
+
+
+
+        # self.data[subset]["ID"].unique()
+
         def bce_loss(z, lgb_data):
             t = lgb_data.get_label().astype(int)
             y = sigmoid(z)
@@ -575,10 +583,12 @@ class LGBModeler(Modeler):
                 params[k]["data_random_seed"] = randrange(1, 9999, 1)
                 params[k]["bagging_seed"] = randrange(1, 9999, 1)
 
-                self.build_model(params=params, parallelize=False)
+            self.build_model(params=params, parallelize=False, n_intervals = self.n_intervals)
             forecasts = self.forecast()
             forecasts.columns = list(map(str, np.arange(1, len(forecasts.columns) + 1, 1)))
-            ids_in_subset = self.data[subset]["ID"].unique()
+
+            # ids_in_subset = self.data[subset]["ID"].unique()
+
             keep_rows = np.repeat(True, len(forecasts))
             for rw in range(len(forecasts)):
                 if forecasts.index[rw] not in ids_in_subset:
@@ -592,6 +602,8 @@ class LGBModeler(Modeler):
         for i in range(n_iterations):
             one_forecast = one_sglb_prediction(self, params=params, subset=subset)
             ensemble_forecasts.append(one_forecast)
+
+        print("Calculating forecast uncertainty")
 
         ### get mean forecasts
         sum_forecasts = ensemble_forecasts[0]
