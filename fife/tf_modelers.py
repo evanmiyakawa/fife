@@ -598,7 +598,7 @@ class TFModeler(Modeler):
             params: dict = None,
             dropout_rate: float = None,
             percent_confidence: float = 0.95,
-            length_scale: float = 0.01
+            model_precision: float = None
     ) -> pd.DataFrame:
         """Predict with MC Dropout as proposed by Gal and Ghahramani (2015). Produces prediction intervals for future observations.
         This procedure must be used with a NN model that uses dropout.
@@ -615,6 +615,8 @@ class TFModeler(Modeler):
             dropout_rate: A dropout rate to be used, if different than default or in params.
             percent_confidence: The percent confidence of the two-sided intervals
                 defined by the computed prediction intervals.
+            model_precision: The inverse of the model variance to be added to the predictive uncertainty
+                estimates from MC Dropout. This parameter should be hyperoptimized.
 
         Returns:
             A pandas DataFrame of prediction intervals for each observation, for each future time point.
@@ -633,19 +635,6 @@ class TFModeler(Modeler):
             return None
         dropout_model = self
 
-        dropout_rate = params["DROPOUT_SHARE"]
-        N = len(dropout_model.data)
-        if "EMBED_L2_REG" in params.keys():
-            lambd = params["EMBED_L2_REG"]
-        else:
-            lambd = 0.001
-
-
-        # mc_dropout_model_precision = length_scale ** 2 * (1 - dropout_rate) / (2 * N * lambd)
-        mc_dropout_model_precision = (1 - dropout_rate) / (2 * N)
-        np.sqrt(1 / (((1 ** 2) * (1 - dropout_rate)) / (2 * N * 0.00001)))
-
-        mc_dropout_model_precision = 0
 
         def one_dropout_prediction(self, dropout_model, params, subset) -> pd.core.frame.DataFrame:
             """Compute forecasts for one MC Dropout iteration."""
@@ -729,6 +718,8 @@ class TFModeler(Modeler):
             prediction_intervals_df = pd.DataFrame({
                 "ID": np.empty(shape=0, dtype=type(dropout_forecasts[0].index[0])),
                 "Period": np.empty(shape=0, dtype="str"),
+                "LB Below Median": np.empty(shape=0, dtype="float"),
+                "UB Above Median": np.empty(shape=0, dtype="float"),
                 "Lower" + conf + "PercentBound": np.empty(shape=0, dtype="float"),
                 "Median": np.empty(shape=0, dtype="float"),
                 "Mean": np.empty(shape=0, dtype="float"),
@@ -742,22 +733,31 @@ class TFModeler(Modeler):
                     mean_forecast = mean_forecasts.iloc[rw, p]
                     period_forecasts = forecast_df[forecast_df['period'] == period]['survival_prob']
                     pred_variance = period_forecasts.var()
-                    forecast_pred_variance = pred_variance + 1 / mc_dropout_model_precision
-                    forecast_pred_variance = pred_variance + 0.25
+                    if model_precision is not None:
+                        forecast_pred_variance = pred_variance + 1 / model_precision
+                    else:
+                        forecast_pred_variance = pred_variance
                     forecast_pred_sd = np.sqrt(forecast_pred_variance)
-                    forecast_lb = np.max([0, mean_forecast + forecast_pred_variance * norm.ppf(alpha)])
-                    forecast_ub = np.min([1, mean_forecast - forecast_pred_variance * norm.ppf(alpha)])
+                    forecast_lb = np.max([0, mean_forecast + forecast_pred_sd * norm.ppf(alpha)])
+                    forecast_ub = np.min([1, mean_forecast - forecast_pred_sd * norm.ppf(alpha)])
                     forecast_median = period_forecasts.quantile([0.5])
-                    # forecast_quantiles = period_forecasts.quantile([alpha, 0.5, 1 - alpha])
+                    forecast_quantiles = period_forecasts.quantile([alpha, 0.5, 1 - alpha])
+
+                    if model_precision is not None:
+                        forecast_quantiles.iloc[0] = forecast_median + (forecast_quantiles.iloc[0] - forecast_median) * np.sqrt(forecast_pred_variance / pred_variance)
+                        forecast_quantiles.iloc[2] = forecast_median + (forecast_quantiles.iloc[2] - forecast_median) * np.sqrt(forecast_pred_variance / pred_variance)
+
                     df = pd.DataFrame(
                         {"ID": forecast_df["ID"][0],
                          "Period": [period],
-                         # "Lower" + conf + "PercentBound": forecast_quantiles.iloc[0],
-                         "Lower" + conf + "PercentBound": forecast_lb,
+                         "LB Below Median": forecast_quantiles.iloc[0] - forecast_median,
+                         "UB Above Median": forecast_quantiles.iloc[2] - forecast_median,
+                         "Lower" + conf + "PercentBound": forecast_quantiles.iloc[0],
+                         # "Lower" + conf + "PercentBound": forecast_lb,
                          "Median": forecast_median.iloc[0],
                          "Mean": mean_forecast,
-                         "Upper" + conf + "PercentBound": forecast_ub
-                         # "Upper" + conf + "PercentBound": forecast_quantiles.iloc[2]
+                         # "Upper" + conf + "PercentBound": forecast_ub
+                         "Upper" + conf + "PercentBound": forecast_quantiles.iloc[2]
                          }
                     )
                     prediction_intervals_df = prediction_intervals_df.append(df)
@@ -772,6 +772,8 @@ class TFModeler(Modeler):
             aggregation_pi_df = pd.DataFrame({
                 "ID": np.empty(shape=0, dtype=type(dropout_forecasts[0].index[0])),
                 "Period": np.empty(shape=0, dtype="str"),
+                "LB Below Median": np.empty(shape=0, dtype="float"),
+                "UB Above Median": np.empty(shape=0, dtype="float"),
                 "Lower" + conf + "PercentBound": np.empty(shape=0, dtype="float"),
                 "Median": np.empty(shape=0, dtype="float"),
                 "Mean": np.empty(shape=0, dtype="float"),
@@ -788,6 +790,8 @@ class TFModeler(Modeler):
                 df = pd.DataFrame(
                     {"ID": "Sum",
                      "Period": [period],
+                     "LB Below Median": forecast_sum_quantiles.iloc[0] - forecast_sum_quantiles.iloc[1],
+                     "UB Above Median": forecast_sum_quantiles.iloc[2] - forecast_sum_quantiles.iloc[1],
                      "Lower" + conf + "PercentBound": forecast_sum_quantiles.iloc[0],
                      "Median": forecast_sum_quantiles.iloc[1],
                      "Mean": forecast_sum_series.mean(),
@@ -822,7 +826,7 @@ class TFModeler(Modeler):
                 warn("Invalid ID.", UserWarning)
                 return None
         forecast_df = forecast_df.assign(Period=forecast_df['Period'].tolist())
-        forecast_df = forecast_df.rename({forecast_df.columns[2]: "Lower", forecast_df.columns[5]: "Upper"}, axis = "columns")
+        forecast_df = forecast_df.rename({forecast_df.columns[4]: "Lower", forecast_df.columns[7]: "Upper"}, axis = "columns")
         plt.clf()
         plt.scatter('Period', 'Mean', data=forecast_df, color="black")
         plt.fill_between(x='Period', y1='Lower', y2='Upper',
