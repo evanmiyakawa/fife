@@ -629,6 +629,9 @@ class TFModeler(Modeler):
         individual_identifier = self.config["INDIVIDUAL_IDENTIFIER"]
         ids_in_subset = self.data[subset][individual_identifier].unique()
 
+        self.build_model(params = params)
+        original_forecasts = self.forecast()
+
 
         if params is None:
             params = self.config
@@ -673,6 +676,10 @@ class TFModeler(Modeler):
             sum_forecasts = sum_forecasts + dropout_forecasts[i]
 
         mean_forecasts = sum_forecasts / len(dropout_forecasts)
+
+        original_forecasts.columns = mean_forecasts.columns
+        mean_forecasts = original_forecasts
+
 
         def get_forecast_variance() -> pd.DataFrame:
             """ Get variance across forecasts"""

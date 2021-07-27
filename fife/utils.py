@@ -114,6 +114,8 @@ def compute_aggregation_uncertainty(
             upper_optim_range = 3
             if mu > 10:
                 upper_optim_range = 1
+            if mu > 300:
+                upper_optim_range = 0.2
             one_delta = minimize_scalar(minimize_delta_function_upper_bound, args=(mu, alpha),
                  method="Bounded", bounds=(0, upper_optim_range)).x
             deltas_solved = np.append(deltas_solved, one_delta)
@@ -136,8 +138,11 @@ def compute_aggregation_uncertainty(
         deltas_solved = np.array([])
 
         for mu in means:
+            lower_optim_range = 1
+            if mu > 300:
+                lower_optim_range = 0.2
             one_delta = minimize_scalar(minimize_delta_function_lower_bound, args=(mu, alpha),
-                 method="Bounded", bounds=(0, 1)).x
+                 method="Bounded", bounds=(0, lower_optim_range)).x
             deltas_solved = np.append(deltas_solved, one_delta)
 
         lower_bounds = (1 - deltas_solved) * means
