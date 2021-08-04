@@ -42,9 +42,6 @@ def make_person(i, N_PERIODS, k=0, exit_prob=0.5, exit_type_prob=None, dgp=1, be
     x1 = np.random.choice(["A", "B", "C"])  # categorical variable
     x2 = np.random.normal()  # and a stationary continuous variable
     x3 = np.random.uniform()  # numerical variable fixed per i
-    # x1 = "A"  # categorical variable
-    # x2 = 0  # and a stationary continuous variable
-    # x3 = 0.5  # numerical variable fixed per i
     # initialize any other characteristics here
     Z = [np.random.normal() for i in range(k) if k > 0]
     cols = ["ID", "period", "X1", "X2", "X3"] + [
@@ -62,16 +59,12 @@ def make_person(i, N_PERIODS, k=0, exit_prob=0.5, exit_type_prob=None, dgp=1, be
         # use Weibull distribution for survival curves
         logh = beta_dict['beta_0'] + beta_dict['beta_t'] * np.log(beta_dict['t'] * (10 / N_PERIODS)) + beta_x1 + beta_dict['beta_x2'] * x2 + beta_dict['beta_x3'] * (x3 - 0.5)
         p = 1 - np.exp(-(np.exp(logh)))
-        # p = np.array(np.repeat(exit_prob, len(p)))
-        # print(p)
         survival_prob = [1 - p[0]]
         for tp in range(1,len(p)):
             survival_prob.append(survival_prob[tp-1] * (1 - p[tp]))
-        # print(survival_prob)
         time = 0
         while date < N_PERIODS:
             exit_prob = p[min(time, N_PERIODS - 1)]
-            # exit_prob = 0
             # print([i, date, x3, x1])
             df.append([i, date, x1, x2, x3] + Z)
             if exit_type != "No_exit":
@@ -154,7 +147,6 @@ def fabricate_data(
             "beta_x3": beta_x3,
             "t": t
         }
-        # print(beta_dict)
 
     else:
         beta_dict = None
