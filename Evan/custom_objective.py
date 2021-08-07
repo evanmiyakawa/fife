@@ -5,6 +5,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, accuracy_score
 from sklearn.datasets import load_breast_cancer
 import seaborn as sns
+from scipy import special
 
 def l2_loss(y, data):
     t = data.get_label()
@@ -51,6 +52,7 @@ def softplus(x):
 def bce_loss(z, data):
     t = data.get_label()
     y = sigmoid(z)
+    # y = special.expit(z)
     grad = y - t
     hess = y * (1 - y)
     return grad, hess
@@ -67,15 +69,27 @@ def custom_asymmetric_train(y_true, y_pred):
     hess = np.where(residual<0, 2*10.0, 2.0)
     return grad, hess
 
+def logloss_init_score(y):
+    p = y.mean()
+    p = np.clip(p, 1e-15, 1 - 1e-15)  # never hurts
+    log_odds = np.log(p / (1 - p))
+    return log_odds
+
 
 data = load_breast_cancer()
 df = pd.DataFrame(data.data, columns=data.feature_names)
 X_train, X_test, y_train, y_test = train_test_split(df, data.target, random_state=0)
 lgb_train = lgb.Dataset(X_train, y_train)
 
+init_score = np.full_like(y_train, logloss_init_score(y_train), dtype=float)
+
+lgb_train = lgb.Dataset(X_train, y_train, init_score = init_score)
+
+
+
 lgbm_params = {
-    # 'objective': 'binary',
-    'objective': 'custom_asymmetric_train',
+    'objective': 'binary',
+    # 'objective': 'custom_asymmetric_train',
     'random_seed': 0,
     }
 model = lgb.train(lgbm_params,
@@ -85,19 +99,27 @@ print(accuracy_score(y_test, y_pred>0.5))
 # >> 0.972027972027972
 
 lgbm_params = {
+    # 'objective': 'binary',
+    # "boost_from_average": False,
     'random_seed': 0
     }
+# model = lgb.train(lgbm_params,
+#                   lgb_train,
+#                   fobj=bce_loss)
 model = lgb.train(lgbm_params,
                   lgb_train,
-                  fobj=bce_loss)#,
-                  # feval=bce_eval)
-model = lgb.train(lgbm_params,
-                  lgb_train)
+                  fobj=bce_loss,
+                  feval=bce_eval)
+# model = lgb.train(lgbm_params,
+#                   lgb_train)
 
 # Note: When using custom objective, the model outputs logits
 y_pred2 = sigmoid(model.predict(X_test))
 print(accuracy_score(y_test, y_pred2>0.5))
 # >> 0.972027972027972
+
+y_pred
+y_pred2
 
 np.var(y_pred)
 np.var(y_pred2)
@@ -121,7 +143,7 @@ model = lgb.train(lgbm_params,
                   lgb_train)
 y_pred = model.predict(X_test)
 print(mean_squared_error(y_test, y_pred))
-# >> 31.94812324773213
+# >> 32.805220875773585
 
 # Using custom objective
 lgbm_params = {
@@ -132,13 +154,14 @@ model = lgb.train(lgbm_params,
                   lgb_train,
                   fobj=l2_loss,
                   feval=l2_eval)
-y_pred = model.predict(X_test)
-print(mean_squared_error(y_test, y_pred))
-# >> 31.947398098316526
+y_pred2 = model.predict(X_test)
+print(mean_squared_error(y_test, y_pred2))
+# >> 32.80441278608258
 
 
 
-
+y_pred
+y_pred2
 
 
 

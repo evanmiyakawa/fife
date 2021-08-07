@@ -93,26 +93,26 @@ def conduct_one_simulation(N_PERSONS: int = 1000, N_PERIODS: int = 10, exit_prob
     # data = read_csv("https://www.dl.dropboxusercontent.com/s/3tdswu2jfgwp4xw/REIGN_2020_7.csv?dl=0")
 
 
-    # data = read_csv("Evan/REIGN_2020_7.csv")
-    #
-    # data["country-leader"] = data["country"] + ": " + data["leader"]
-    # data["year-month"] = data["year"].astype(int).astype(str) + data["month"].astype(int).astype(str).str.zfill(2)
-    # data["year-month"] = to_datetime(data["year-month"], format="%Y%m")
-    # data = concat([data[["country-leader", "year-month"]],
-    #                data.drop(["ccode", "country-leader", "leader", "year-month"],
-    #                          axis=1)],
-    #               axis=1)
-    # total_obs = len(data)
-    # data = data.drop_duplicates(["country-leader", "year-month"], keep="first")
-    #
-    #
-    # unique_months = data['year-month'].unique()
-    # len(unique_months)
-    # cutoff_time = unique_months[int(np.round(len(unique_months) * 0.8))]
-    #
-    #
-    # train_data = data[data['year-month'] < cutoff_time]
-    # test_data = data[data['year-month'] >= cutoff_time]
+    data = read_csv("Evan/REIGN_2020_7.csv")
+
+    data["country-leader"] = data["country"] + ": " + data["leader"]
+    data["year-month"] = data["year"].astype(int).astype(str) + data["month"].astype(int).astype(str).str.zfill(2)
+    data["year-month"] = to_datetime(data["year-month"], format="%Y%m")
+    data = concat([data[["country-leader", "year-month"]],
+                   data.drop(["ccode", "country-leader", "leader", "year-month"],
+                             axis=1)],
+                  axis=1)
+    total_obs = len(data)
+    data = data.drop_duplicates(["country-leader", "year-month"], keep="first")
+
+
+    unique_months = data['year-month'].unique()
+    len(unique_months)
+    cutoff_time = unique_months[int(np.round(len(unique_months) * 0.8))]
+
+
+    train_data = data[data['year-month'] < cutoff_time]
+    test_data = data[data['year-month'] >= cutoff_time]
 
     ### TF Modeler ###
 

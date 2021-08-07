@@ -583,3 +583,11 @@ def softplus(x):
     result[positive] = _positive_softplus(x[positive])
     result[negative] = _negative_softplus(x[negative])
     return result
+
+
+def logloss_init_score(y):
+    """ Used to initialize values when using custom loss function in LightGBM"""
+    p = y.mean()
+    p = np.clip(p, 1e-15, 1 - 1e-15)  # never hurts
+    log_odds = np.log(p / (1 - p))
+    return log_odds
